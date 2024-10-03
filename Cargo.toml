@@ -90,3 +90,6 @@ unbounded_depth = []
 
 # Provide a method to allow trailing commas in arrays and objects.
 trailing_comma = []
+
+# Provide a method to allow control characters inside of strings.
+extended_strings = []

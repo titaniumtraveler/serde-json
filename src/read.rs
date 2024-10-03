@@ -221,7 +221,11 @@ where
     {
         loop {
             let ch = tri!(next_or_eof(self));
-            if !is_escape(ch, true) {
+            #[cfg(not(feature = "extended_strings"))]
+            let including_control_characters = true;
+            #[cfg(feature = "extended_strings")]
+            let including_control_characters = false;
+            if !is_escape(ch, including_control_characters) {
                 scratch.push(ch);
                 continue;
             }
@@ -342,7 +346,11 @@ where
     fn ignore_str(&mut self) -> Result<()> {
         loop {
             let ch = tri!(next_or_eof(self));
-            if !is_escape(ch, true) {
+            #[cfg(not(feature = "extended_strings"))]
+            let including_control_characters = true;
+            #[cfg(feature = "extended_strings")]
+            let including_control_characters = false;
+            if !is_escape(ch, including_control_characters) {
                 continue;
             }
             match ch {
@@ -477,7 +485,13 @@ impl<'a> SliceRead<'a> {
     #[cold]
     #[inline(never)]
     fn skip_to_escape_slow(&mut self) {
-        while self.index < self.slice.len() && !is_escape(self.slice[self.index], true) {
+        #[cfg(not(feature = "extended_strings"))]
+        let including_control_characters = true;
+        #[cfg(feature = "extended_strings")]
+        let including_control_characters = false;
+        while self.index < self.slice.len()
+            && !is_escape(self.slice[self.index], including_control_characters)
+        {
             self.index += 1;
         }
     }
