@@ -11,6 +11,26 @@
 
 ---
 
+# Fork to allow parsing of more lenient json
+
+This fork allows for trailing commas in arrays and objects and control
+characters like newlines (i.e the literal bytes `0x0a`, not the string
+escape `\n`) in strings.
+
+This fork is made to parse the JSON shipped with the games games [Book of Hours]
+and [Cultist Simulator] for my [`Research Assistent`] project. I don't intent
+maintaining this fork more than it is necessary for this project. (Though at
+least the trailing comma feature *could* be added back to `serde_json` I think.)
+
+This fork is built on top of [`serde_json@1.0.128`] and I might rebase/merge this
+branch when I feel it is necessary for [`Research Assistent`].
+
+[Cultist Simulator]: https://weatherfactory.biz/cultist-simulator/
+[Book of Hours]: https://weatherfactory.biz/book-of-hours/
+[`Research Assistent`]: https://github.com/titaniumtraveler/research-assistant.git
+[`serde_json@1.0.128`]: https://github.com/serde-rs/json/tree/1.0.128
+
+---
 ```toml
 [dependencies]
 serde_json = "1.0"
