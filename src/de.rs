@@ -36,6 +36,8 @@ pub struct Deserializer<R> {
     single_precision: bool,
     #[cfg(feature = "unbounded_depth")]
     disable_recursion_limit: bool,
+    #[cfg(feature = "trailing_comma")]
+    trailing_comma: bool,
 }
 
 impl<'de, R> Deserializer<R>
@@ -59,6 +61,8 @@ where
             single_precision: false,
             #[cfg(feature = "unbounded_depth")]
             disable_recursion_limit: false,
+            #[cfg(feature = "trailing_comma")]
+            trailing_comma: false,
         }
     }
 }
@@ -208,6 +212,13 @@ impl<'de, R: Read<'de>> Deserializer<R> {
     #[cfg_attr(docsrs, doc(cfg(feature = "unbounded_depth")))]
     pub fn disable_recursion_limit(&mut self) {
         self.disable_recursion_limit = true;
+    }
+
+    /// Allow trailing commas in objects and arrays.
+    #[cfg(feature = "trailing_comma")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "trailing_comma")))]
+    pub fn allow_trailing_comma(&mut self) {
+        self.trailing_comma = true;
     }
 
     pub(crate) fn peek(&mut self) -> Result<Option<u8>> {
@@ -1070,6 +1081,11 @@ impl<'de, R: Read<'de>> Deserializer<R> {
             Some(b',') => {
                 self.eat_char();
                 match self.parse_whitespace() {
+                    #[cfg(feature = "trailing_comma")]
+                    Ok(Some(b']')) if self.trailing_comma => {
+                        self.eat_char();
+                        Ok(())
+                    }
                     Ok(Some(b']')) => Err(self.peek_error(ErrorCode::TrailingComma)),
                     _ => Err(self.peek_error(ErrorCode::TrailingCharacters)),
                 }
@@ -1082,6 +1098,11 @@ impl<'de, R: Read<'de>> Deserializer<R> {
     fn end_map(&mut self) -> Result<()> {
         match tri!(self.parse_whitespace()) {
             Some(b'}') => {
+                self.eat_char();
+                Ok(())
+            }
+            #[cfg(feature = "trailing_comma")]
+            Some(b',') if self.trailing_comma => {
                 self.eat_char();
                 Ok(())
             }
@@ -1948,6 +1969,8 @@ impl<'de, 'a, R: Read<'de> + 'a> de::SeqAccess<'de> for SeqAccess<'a, R> {
         };
 
         match peek {
+            #[cfg(feature = "trailing_comma")]
+            Some(b']') if self.de.trailing_comma => Ok(None),
             Some(b']') => Err(self.de.peek_error(ErrorCode::TrailingComma)),
             Some(_) => Ok(Some(tri!(seed.deserialize(&mut *self.de)))),
             None => Err(self.de.peek_error(ErrorCode::EofWhileParsingValue)),
@@ -1996,6 +2019,8 @@ impl<'de, 'a, R: Read<'de> + 'a> de::MapAccess<'de> for MapAccess<'a, R> {
 
         match peek {
             Some(b'"') => seed.deserialize(MapKey { de: &mut *self.de }).map(Some),
+            #[cfg(feature = "trailing_comma")]
+            Some(b'}') if self.de.trailing_comma => Ok(None),
             Some(b'}') => Err(self.de.peek_error(ErrorCode::TrailingComma)),
             Some(_) => Err(self.de.peek_error(ErrorCode::KeyMustBeAString)),
             None => Err(self.de.peek_error(ErrorCode::EofWhileParsingValue)),
