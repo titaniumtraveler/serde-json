@@ -1210,12 +1210,18 @@ impl<'de, R: Read<'de>> Deserializer<R> {
             }
 
             if frame == b'{' {
+                let mut is_ident = false;
                 match tri!(self.parse_whitespace()) {
                     Some(b'"') => self.eat_char(),
+                    Some(b'a'..=b'z' | b'A'..=b'Z' | b'_') => is_ident = true,
                     Some(_) => return Err(self.peek_error(ErrorCode::KeyMustBeAString)),
                     None => return Err(self.peek_error(ErrorCode::EofWhileParsingObject)),
                 }
-                tri!(self.read.ignore_str());
+                if is_ident {
+                    tri!(self.read.ignore_ident())
+                } else {
+                    tri!(self.read.ignore_str());
+                }
                 match tri!(self.parse_whitespace()) {
                     Some(b':') => self.eat_char(),
                     Some(_) => return Err(self.peek_error(ErrorCode::ExpectedColon)),
@@ -2022,6 +2028,9 @@ impl<'de, 'a, R: Read<'de> + 'a> de::MapAccess<'de> for MapAccess<'a, R> {
             #[cfg(feature = "trailing_comma")]
             Some(b'}') if self.de.trailing_comma => Ok(None),
             Some(b'}') => Err(self.de.peek_error(ErrorCode::TrailingComma)),
+            Some(b'a'..=b'z' | b'A'..=b'Z' | b'_') => {
+                seed.deserialize(MapIdent { de: &mut *self.de }).map(Some)
+            }
             Some(_) => Err(self.de.peek_error(ErrorCode::KeyMustBeAString)),
             None => Err(self.de.peek_error(ErrorCode::EofWhileParsingValue)),
         }
@@ -2239,6 +2248,143 @@ where
     {
         self.de.eat_char();
 
+        let peek = match tri!(self.de.next_char()) {
+            Some(b) => b,
+            None => {
+                return Err(self.de.peek_error(ErrorCode::EofWhileParsingValue));
+            }
+        };
+
+        let value = match peek {
+            b't' => {
+                tri!(self.de.parse_ident(b"rue\""));
+                visitor.visit_bool(true)
+            }
+            b'f' => {
+                tri!(self.de.parse_ident(b"alse\""));
+                visitor.visit_bool(false)
+            }
+            _ => {
+                self.de.scratch.clear();
+                let s = tri!(self.de.read.parse_str(&mut self.de.scratch));
+                Err(de::Error::invalid_type(Unexpected::Str(&s), &visitor))
+            }
+        };
+
+        match value {
+            Ok(value) => Ok(value),
+            Err(err) => Err(self.de.fix_position(err)),
+        }
+    }
+
+    #[inline]
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: de::Visitor<'de>,
+    {
+        // Map keys cannot be null.
+        visitor.visit_some(self)
+    }
+
+    #[inline]
+    fn deserialize_newtype_struct<V>(self, name: &'static str, visitor: V) -> Result<V::Value>
+    where
+        V: de::Visitor<'de>,
+    {
+        #[cfg(feature = "raw_value")]
+        {
+            if name == crate::raw::TOKEN {
+                return self.de.deserialize_raw_value(visitor);
+            }
+        }
+
+        let _ = name;
+        visitor.visit_newtype_struct(self)
+    }
+
+    #[inline]
+    fn deserialize_enum<V>(
+        self,
+        name: &'static str,
+        variants: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.de.deserialize_enum(name, variants, visitor)
+    }
+
+    #[inline]
+    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.de.deserialize_bytes(visitor)
+    }
+
+    #[inline]
+    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.de.deserialize_bytes(visitor)
+    }
+
+    forward_to_deserialize_any! {
+        char str string unit unit_struct seq tuple tuple_struct map struct
+        identifier ignored_any
+    }
+}
+
+struct MapIdent<'a, R: 'a> {
+    de: &'a mut Deserializer<R>,
+}
+
+impl<'de, 'a, R> MapIdent<'a, R>
+where
+    R: Read<'de>,
+{
+    deserialize_numeric_key!(deserialize_number, deserialize_number);
+}
+
+impl<'de, 'a, R> de::Deserializer<'de> for MapIdent<'a, R>
+where
+    R: Read<'de>,
+{
+    type Error = Error;
+
+    fn deserialize_any<V>(self, visitor: V) -> result::Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.de.scratch.clear();
+        match tri!(self.de.read.parse_ident_raw(&mut self.de.scratch)) {
+            Reference::Borrowed(s) => visitor.visit_borrowed_str(s),
+            Reference::Copied(s) => visitor.visit_str(s),
+        }
+    }
+
+    deserialize_numeric_key!(deserialize_i8);
+    deserialize_numeric_key!(deserialize_i16);
+    deserialize_numeric_key!(deserialize_i32);
+    deserialize_numeric_key!(deserialize_i64);
+    deserialize_numeric_key!(deserialize_i128, deserialize_i128);
+    deserialize_numeric_key!(deserialize_u8);
+    deserialize_numeric_key!(deserialize_u16);
+    deserialize_numeric_key!(deserialize_u32);
+    deserialize_numeric_key!(deserialize_u64);
+    deserialize_numeric_key!(deserialize_u128, deserialize_u128);
+    #[cfg(not(feature = "float_roundtrip"))]
+    deserialize_numeric_key!(deserialize_f32);
+    #[cfg(feature = "float_roundtrip")]
+    deserialize_numeric_key!(deserialize_f32, deserialize_f32);
+    deserialize_numeric_key!(deserialize_f64);
+
+    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: de::Visitor<'de>,
+    {
         let peek = match tri!(self.de.next_char()) {
             Some(b) => b,
             None => {

@@ -78,10 +78,19 @@ pub trait Read<'de>: private::Sealed {
         scratch: &'s mut Vec<u8>,
     ) -> Result<Reference<'de, 's, [u8]>>;
 
+    /// Parses object key in the shape of an identifier. Assumes scratch is empty.
+    fn parse_ident_raw<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'de, 's, str>>;
+
     /// Assumes the previous byte was a quotation mark. Parses a JSON-escaped
     /// string until the next quotation mark but discards the data.
     #[doc(hidden)]
     fn ignore_str(&mut self) -> Result<()>;
+
+    /// Parses JSON object key without quotes.
+    fn ignore_ident(&mut self) -> Result<()>;
 
     /// Assumes the previous byte was a hex escape sequence ('\u') in a string.
     /// Parses next hexadecimal sequence.
@@ -343,6 +352,27 @@ where
             .map(Reference::Copied)
     }
 
+    fn parse_ident_raw<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'de, 's, str>> {
+        loop {
+            let ch = tri!(peek_or_eof(self));
+            match ch {
+                b':' | b' ' => {
+                    return Ok(Reference::Copied(tri!(as_str(&self, scratch))));
+                }
+                b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
+                    self.discard();
+                    scratch.push(ch);
+                }
+                _ => {
+                    return error(self, ErrorCode::ControlCharacterWhileParsingString);
+                }
+            }
+        }
+    }
+
     fn ignore_str(&mut self) -> Result<()> {
         loop {
             let ch = tri!(next_or_eof(self));
@@ -359,6 +389,23 @@ where
                 }
                 b'\\' => {
                     tri!(ignore_escape(self));
+                }
+                _ => {
+                    return error(self, ErrorCode::ControlCharacterWhileParsingString);
+                }
+            }
+        }
+    }
+
+    fn ignore_ident(&mut self) -> Result<()> {
+        loop {
+            let ch = tri!(next_or_eof(self));
+            match ch {
+                b':' | b' ' => {
+                    return Ok(());
+                }
+                b'a'..=b'z' | b'A'..=b'Z' => {
+                    continue;
                 }
                 _ => {
                     return error(self, ErrorCode::ControlCharacterWhileParsingString);
@@ -596,6 +643,26 @@ impl<'a> Read<'a> for SliceRead<'a> {
         self.parse_str_bytes(scratch, true, as_str)
     }
 
+    fn parse_ident_raw<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'a, 's, str>> {
+        loop {
+            let ch = tri!(next_or_eof(self));
+            match ch {
+                b':' | b' ' => {
+                    return Ok(Reference::Copied(tri!(as_str(&self, scratch))));
+                }
+                b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
+                    scratch.push(ch);
+                }
+                _ => {
+                    return error(self, ErrorCode::ControlCharacterWhileParsingString);
+                }
+            }
+        }
+    }
+
     fn parse_str_raw<'s>(
         &'s mut self,
         scratch: &'s mut Vec<u8>,
@@ -617,6 +684,23 @@ impl<'a> Read<'a> for SliceRead<'a> {
                 b'\\' => {
                     self.index += 1;
                     tri!(ignore_escape(self));
+                }
+                _ => {
+                    return error(self, ErrorCode::ControlCharacterWhileParsingString);
+                }
+            }
+        }
+    }
+
+    fn ignore_ident(&mut self) -> Result<()> {
+        loop {
+            let ch = tri!(next_or_eof(self));
+            match ch {
+                b':' | b' ' => {
+                    return Ok(());
+                }
+                b'a'..=b'z' | b'A'..=b'Z' => {
+                    continue;
                 }
                 _ => {
                     return error(self, ErrorCode::ControlCharacterWhileParsingString);
@@ -730,8 +814,45 @@ impl<'a> Read<'a> for StrRead<'a> {
         self.delegate.parse_str_raw(scratch)
     }
 
+    fn parse_ident_raw<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'a, 's, str>> {
+        loop {
+            let ch = tri!(next_or_eof(self));
+            match ch {
+                b':' | b' ' => {
+                    return Ok(Reference::Copied(tri!(as_str(&self, scratch))));
+                }
+                b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
+                    scratch.push(ch);
+                }
+                _ => {
+                    return error(self, ErrorCode::ControlCharacterWhileParsingString);
+                }
+            }
+        }
+    }
+
     fn ignore_str(&mut self) -> Result<()> {
         self.delegate.ignore_str()
+    }
+
+    fn ignore_ident(&mut self) -> Result<()> {
+        loop {
+            let ch = tri!(next_or_eof(self));
+            match ch {
+                b':' | b' ' => {
+                    return Ok(());
+                }
+                b'a'..=b'z' | b'A'..=b'Z' => {
+                    continue;
+                }
+                _ => {
+                    return error(self, ErrorCode::ControlCharacterWhileParsingString);
+                }
+            }
+        }
     }
 
     fn decode_hex_escape(&mut self) -> Result<u16> {
@@ -799,6 +920,26 @@ where
         R::parse_str(self, scratch)
     }
 
+    fn parse_ident_raw<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'de, 's, str>> {
+        loop {
+            let ch = tri!(next_or_eof(self));
+            match ch {
+                b':' | b' ' => {
+                    return Ok(Reference::Copied(tri!(as_str(&self, scratch))));
+                }
+                b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
+                    scratch.push(ch);
+                }
+                _ => {
+                    return error(self, ErrorCode::ControlCharacterWhileParsingString);
+                }
+            }
+        }
+    }
+
     fn parse_str_raw<'s>(
         &'s mut self,
         scratch: &'s mut Vec<u8>,
@@ -808,6 +949,23 @@ where
 
     fn ignore_str(&mut self) -> Result<()> {
         R::ignore_str(self)
+    }
+
+    fn ignore_ident(&mut self) -> Result<()> {
+        loop {
+            let ch = tri!(next_or_eof(self));
+            match ch {
+                b':' | b' ' => {
+                    return Ok(());
+                }
+                b'a'..=b'z' | b'A'..=b'Z' => {
+                    continue;
+                }
+                _ => {
+                    return error(self, ErrorCode::ControlCharacterWhileParsingString);
+                }
+            }
+        }
     }
 
     fn decode_hex_escape(&mut self) -> Result<u16> {
